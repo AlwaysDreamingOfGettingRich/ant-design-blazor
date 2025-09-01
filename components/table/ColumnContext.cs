@@ -14,8 +14,6 @@ namespace AntDesign
 
         public IList<IColumn> HeaderColumns { get; set; } = new List<IColumn>();
 
-        private int CurrentColIndex { get; set; }
-
         private int[] ColIndexOccupied { get; set; }
 
         private ITable _table;
@@ -32,7 +30,8 @@ namespace AntDesign
                 return;
             }
 
-            column.ColIndex = CurrentColIndex++;
+            // 直接根据Columns集合的实际顺序分配索引
+            column.ColIndex = Columns.Count;
             Columns.Add(column);
         }
 
@@ -46,34 +45,20 @@ namespace AntDesign
             var columnSpan = column.HeaderColSpan;
             if (column.RowSpan == 0) columnSpan = 0;
 
-            do
+            // 多级表头：确保HeaderColumns的索引与Columns对应
+            if (HeaderColumns.Count < Columns.Count)
             {
-                if (++CurrentColIndex >= Columns.Count)
-                {
-                    CurrentColIndex = 0;
-                    if (ColIndexOccupied != null)
-                    {
-                        foreach (ref var item in ColIndexOccupied.AsSpan())
-                        {
-                            if (item > 0) item--;
-                        }
-                    }
-                }
-            } 
-            while (ColIndexOccupied != null && ColIndexOccupied[CurrentColIndex] > 0);
-
-            column.ColIndex = CurrentColIndex;
-            HeaderColumns.Add(column);
-            CurrentColIndex += columnSpan - 1;
-
-            if (column.RowSpan > 1)
-            {
-                ColIndexOccupied ??= new int[Columns.Count];
-                for (var i = column.ColIndex; i <= CurrentColIndex; i++)
-                {
-                    ColIndexOccupied[i] = column.RowSpan;
-                }
+                // 找到对应的普通列
+                var correspondingColumn = Columns[HeaderColumns.Count];
+                column.ColIndex = correspondingColumn.ColIndex;
             }
+            else
+            {
+                // 如果HeaderColumns比Columns多，使用最后一个索引
+                column.ColIndex = Columns.Count > 0 ? Columns.Count - 1 : 0;
+            }
+
+            HeaderColumns.Add(column);
         }
 
         public void AddColGroup(IColumn column)
@@ -83,12 +68,23 @@ namespace AntDesign
                 return;
             }
 
-            if (++CurrentColIndex >= Columns.Count)
+            // ColGroup的索引必须与Columns中的对应列一致
+            if (Columns.Any())
             {
-                CurrentColIndex = 0;
+                var colIndex = Columns.Count - 1;
+                if (colIndex >= 0 && colIndex < Columns.Count)
+                {
+                    column.ColIndex = Columns[colIndex].ColIndex;
+                }
+                else
+                {
+                    column.ColIndex = 0;
+                }
             }
-
-            column.ColIndex = CurrentColIndex;
+            else
+            {
+                column.ColIndex = 0;
+            }
 
             if (_table.ScrollX != null && Columns.Any(x => x.Width == null))
             {
@@ -124,44 +120,51 @@ namespace AntDesign
             var columnSpan = column.ColSpan;
             if (column.RowSpan == 0) columnSpan = 0;
 
-            do
-            {
-                if (++CurrentColIndex >= Columns.Count)
-                {
-                    CurrentColIndex = 0;
-                    if (ColIndexOccupied != null)
-                    {
-                        foreach (ref var item in ColIndexOccupied.AsSpan())
-                        {
-                            if (item > 0) item--;
-                        }
-                    }
-                }
-            }
-            while (ColIndexOccupied != null && ColIndexOccupied[CurrentColIndex] > 0);
-
+            // 确保行列的索引与Columns集合对应
             if (_table.AutoColIndexes)
             {
-                column.ColIndex = CurrentColIndex;
-            }
-
-            CurrentColIndex += columnSpan - 1;
-
-            if (column.RowSpan > 1)
-            {
-                ColIndexOccupied ??= new int[Columns.Count];
-                for (var i = column.ColIndex; i <= CurrentColIndex; i++)
+                if (Columns.Any())
                 {
-                    ColIndexOccupied[i] = column.RowSpan;
+                    // 找到对应的普通列
+                    var correspondingColumn = Columns.LastOrDefault();
+                    if (correspondingColumn != null)
+                    {
+                        column.ColIndex = correspondingColumn.ColIndex;
+                    }
+                    else
+                    {
+                        column.ColIndex = 0;
+                    }
+                }
+                else
+                {
+                    column.ColIndex = 0;
+                }
+            }
+            else
+            {
+                // 手动设置ColIndex时，确保它在合理范围内
+                if (column.ColIndex < 0 || column.ColIndex >= Columns.Count)
+                {
+                    column.ColIndex = Columns.Count > 0 ? Columns.Count - 1 : 0;
                 }
             }
         }
 
         internal void HeaderColumnInitialized(IColumn column)
         {
-            if (column.ColIndex == Columns.Count - 1)
+            // 确保所有列的索引一致
+            if (HeaderColumns.Count == Columns.Count)
             {
-                // Header columns have all been initialized, then we can invoke the first change.
+                // 同步HeaderColumns和Columns的索引
+                for (int i = 0; i < Columns.Count; i++)
+                {
+                    if (i < HeaderColumns.Count)
+                    {
+                        HeaderColumns[i].ColIndex = Columns[i].ColIndex;
+                    }
+                }
+
                 _table.OnColumnInitialized();
             }
         }
